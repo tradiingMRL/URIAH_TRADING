@@ -1,0 +1,16 @@
+app:
+  name: "URIAH_TRADING"
+  timezone: "+11:00"
+
+paths:
+  data_dir: "data"
+  logs_dir: "logs"
+  out_dir: "out"
+
+logging:
+  events_file: "logs/events.ndjson"
+  trades_file: "logs/trades.ndjson"
+  heartbeat_file: "logs/heartbeat.txt"
+
+heartbeat:
+  interval_minutes: 5
