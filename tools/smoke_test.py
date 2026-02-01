@@ -1,0 +1,1 @@
+print("SMOKE TEST OK")
