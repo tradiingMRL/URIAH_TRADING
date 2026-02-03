@@ -219,6 +219,73 @@ Risk Type: Financial Sustainability
 
 ---
 
+URIAH_TRADING — Daily Summary
+Date: 2026-02-03 (AU)
+
+==================================================
+
+1) What was completed today
+---------------------------
+
+- SQLite live database initialised and validated
+- Trade events ingestion pipeline working end-to-end
+- Ingest idempotency confirmed (hash-based)
+- Connection health logging added (connection_events)
+- Safety events table added (safety_events)
+- Controller heartbeat implemented and verified
+- Force-flat + lockout policy implemented and logged
+- Reset mechanism via flag file implemented
+- Decision tree documented and committed
+- Volatility gate finalised (velocity/time-based, non-ATR)
+- System outline committed to Git
+
+--------------------------------------------------
+
+2) What is now LOCKED
+---------------------
+
+- Single-position only (no scale-ins)
+- No order modification allowed under any circumstances
+- Connection loss or corruption → force flat + lockout
+- Volatility gate is veto/weighting only (never directs trades)
+- HMM and volatility are regime/context only
+- Python is control/monitoring layer, not execution
+
+--------------------------------------------------
+
+3) Known open items (not started)
+---------------------------------
+
+- A5 completion (remaining safety state handling)
+- HMM global state design + logging
+- Volatility statistics gate (separate from HMM)
+- Trade lifecycle summary report (per-trade rollup)
+- Dashboard (web-based, read-only, multi-user)
+- NT8 execution module hardening
+- Rithmic production connection hardening
+
+--------------------------------------------------
+
+4) Decisions made today
+-----------------------
+
+- Web-based dashboard confirmed (iPad-friendly)
+- NT8 = execution only
+- Python = orchestration, safety, logging
+- Rithmic = data + execution feed
+- No mid-trade decision authority for HMM or volatility
+
+--------------------------------------------------
+
+5) Next planned focus
+---------------------
+
+- Finish A5 (safety state machine)
+- Then move to HMM Global State design
+
+==================================================
+End of Summary
+
 Version: v1.0  
 Status: Active  
 Review Cadence: Weekly
