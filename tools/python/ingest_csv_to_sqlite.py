@@ -3,7 +3,7 @@ import hashlib
 import json
 import os
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from glob import glob
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -23,6 +23,11 @@ SESSION_SUMMARY_GLOB = os.path.join(
     PROJECT_ROOT, "data", "live", "session", "**", "session_summary_*.csv"
 )
 
+# NEW (A3): connection health events
+CONNECTION_EVENTS_GLOB = os.path.join(
+    PROJECT_ROOT, "data", "live", "health", "**", "connection_events_*.csv"
+)
+
 BATCH_SIZE = 2000
 
 
@@ -38,7 +43,8 @@ def sha256_file(path: str) -> str:
 
 
 def now_utc_iso() -> str:
-    return datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
+    # Python 3.14+ prefers timezone-aware UTC timestamps
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
 def relpath_under_project(path: str) -> str:
@@ -117,18 +123,12 @@ def get_first_present(row: Dict[str, Any], keys: List[str]) -> Any:
     return None
 
 
-def stable_event_uid(file_sha: str, row_num_1based: int, row: Dict[str, Any]) -> str:
-    key_fields = [
-        "ts_utc",
-        "trade_id",
-        "symbol",
-        "system",
-        "event_type",
-        "direction",
-        "entry_reason_code",
-        "exit_reason_code",
-        "mgmt_reason_code",
-    ]
+def stable_event_uid(file_sha: str, row_num_1based: int, row: Dict[str, Any], key_fields: List[str]) -> str:
+    """
+    Creates a stable per-row UID:
+    - depends on file sha + row number + a few key fields
+    - resilient to extra columns being added later
+    """
     parts = [file_sha, str(row_num_1based)]
     for k in key_fields:
         v = row.get(k, "")
@@ -200,7 +200,18 @@ TRADE_EVENTS_TYPED_COLS = [
 def map_trade_event_row(raw: Dict[str, Any], file_sha: str, row_num_1based: int) -> Tuple[List[Any], str]:
     event_uid = get_first_present(raw, ["event_uid", "event_id", "uid"])
     if event_uid is None:
-        event_uid = stable_event_uid(file_sha, row_num_1based, raw)
+        key_fields = [
+            "ts_utc",
+            "trade_id",
+            "symbol",
+            "system",
+            "event_type",
+            "direction",
+            "entry_reason_code",
+            "exit_reason_code",
+            "mgmt_reason_code",
+        ]
+        event_uid = stable_event_uid(file_sha, row_num_1based, raw, key_fields)
 
     typed: Dict[str, Any] = {k: None for k in TRADE_EVENTS_TYPED_COLS}
     typed["event_uid"] = str(event_uid)
@@ -429,6 +440,105 @@ def ingest_session_summary_csv(conn: sqlite3.Connection, csv_path: str, file_sha
 
 
 # -----------------------------
+# connection_events mapping (A3)
+# -----------------------------
+CONNECTION_EVENTS_TYPED_COLS = [
+    "event_uid",
+    "ts_utc",
+    "provider",
+    "nt_connection_name",
+    "primary_state",
+    "pricefeed_state",
+    "raw_message",
+    "not_safe",
+    "force_flat_triggered",
+    "lockout_active",
+]
+
+
+def map_connection_event_row(raw: Dict[str, Any], file_sha: str, row_num_1based: int) -> Tuple[List[Any], str]:
+    event_uid = get_first_present(raw, ["event_uid", "event_id", "uid"])
+    if event_uid is None:
+        key_fields = [
+            "ts_utc",
+            "provider",
+            "nt_connection_name",
+            "primary_state",
+            "pricefeed_state",
+            "raw_message",
+            "not_safe",
+            "force_flat_triggered",
+            "lockout_active",
+        ]
+        event_uid = stable_event_uid(file_sha, row_num_1based, raw, key_fields)
+
+    typed: Dict[str, Any] = {k: None for k in CONNECTION_EVENTS_TYPED_COLS}
+    typed["event_uid"] = str(event_uid)
+
+    # required-ish strings
+    for k in ["ts_utc", "provider", "nt_connection_name"]:
+        if k in raw and str(raw[k]).strip() != "":
+            typed[k] = str(raw[k])
+
+    # optional strings
+    for k in ["primary_state", "pricefeed_state", "raw_message"]:
+        if k in raw and str(raw[k]).strip() != "":
+            typed[k] = str(raw[k])
+
+    # ints 0/1 (required by schema)
+    for k in ["not_safe", "force_flat_triggered", "lockout_active"]:
+        if k in raw:
+            v = safe_int01(raw[k])
+            typed[k] = 0 if v is None else v
+
+    payload = {
+        "raw": raw,
+        "_ingest": {
+            "file_sha256": file_sha,
+            "row_num_1based": row_num_1based,
+            "ingested_utc": now_utc_iso(),
+        },
+    }
+    payload_json = json.dumps(payload, ensure_ascii=False)
+
+    values = [typed[k] for k in CONNECTION_EVENTS_TYPED_COLS]
+    return values, payload_json
+
+
+def _insert_connection_event_batch(conn: sqlite3.Connection, batch: List[Tuple[Any, ...]]) -> int:
+    placeholders = ",".join(["?"] * (len(CONNECTION_EVENTS_TYPED_COLS) + 1))
+    cols = ",".join(CONNECTION_EVENTS_TYPED_COLS + ["payload_json"])
+    sql = f"INSERT OR IGNORE INTO connection_events ({cols}) VALUES ({placeholders});"
+    conn.executemany(sql, batch)
+    return len(batch)
+
+
+def ingest_connection_events_csv(conn: sqlite3.Connection, csv_path: str, file_sha: str) -> int:
+    rel = relpath_under_project(csv_path)
+    inserted = 0
+
+    with open(csv_path, "r", newline="", encoding="utf-8-sig") as f:
+        reader = csv.DictReader(f)
+        batch: List[Tuple[Any, ...]] = []
+        row_num = 0
+
+        for raw in reader:
+            row_num += 1
+            values, payload_json = map_connection_event_row(raw, file_sha, row_num)
+            batch.append(tuple(values + [payload_json]))
+
+            if len(batch) >= BATCH_SIZE:
+                inserted += _insert_connection_event_batch(conn, batch)
+                batch.clear()
+
+        if batch:
+            inserted += _insert_connection_event_batch(conn, batch)
+
+    mark_file_ingested(conn, rel, file_sha, inserted)
+    return inserted
+
+
+# -----------------------------
 # Main
 # -----------------------------
 @dataclass
@@ -456,6 +566,8 @@ def ingest_kind(conn: sqlite3.Connection, kind: str, pattern: str) -> IngestResu
             n = ingest_trade_events_csv(conn, p, file_sha)
         elif kind == "session_summary":
             n = ingest_session_summary_csv(conn, p, file_sha)
+        elif kind == "connection_events":
+            n = ingest_connection_events_csv(conn, p, file_sha)
         else:
             raise ValueError(f"Unknown kind: {kind}")
 
@@ -475,10 +587,12 @@ def main() -> int:
         conn.execute("BEGIN;")
         r1 = ingest_kind(conn, "trade_events", TRADE_EVENTS_GLOB)
         r2 = ingest_kind(conn, "session_summary", SESSION_SUMMARY_GLOB)
+        r3 = ingest_kind(conn, "connection_events", CONNECTION_EVENTS_GLOB)
         conn.commit()
 
         print(f"trade_events: files_seen={r1.files_seen} files_ingested={r1.files_ingested} rows_inserted={r1.rows_inserted}")
         print(f"session_summary: files_seen={r2.files_seen} files_ingested={r2.files_ingested} rows_inserted={r2.rows_inserted}")
+        print(f"connection_events: files_seen={r3.files_seen} files_ingested={r3.files_ingested} rows_inserted={r3.rows_inserted}")
         return 0
     except Exception as e:
         conn.rollback()
