@@ -70,3 +70,33 @@ Any change to this file requires:
 - Explicit discussion
 - Same-day git commit
 
+## 6. Canonical Repository Scaffold (v1)
+
+The following scaffold defines the **authoritative file layout**.
+This is a design contract, not an instruction to execute blindly.
+
+```powershell
+# URIAH_TRADING – structural scaffold
+# Safe to re-run. Creates folders/files only if missing.
+
+$root = Get-Location
+
+$dirs = @(
+  "src/core/hmm",
+  "src/core/time_debt",
+  "src/core/health",
+  "src/core/fees",
+  "src/systems",
+  "src/execution",
+  "src/brain",
+  "tests/hmm",
+  "tests/systems",
+  "data/raw",
+  "data/derived"
+)
+
+$files = @(
+  "src/core/hmm/__init__.py",
+  "src/core/hmm/state_definitions.py",
+  ...
+)
