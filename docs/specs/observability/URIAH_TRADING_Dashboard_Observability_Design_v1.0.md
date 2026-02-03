@@ -285,6 +285,18 @@ Minimum notification types:
 Notifications must be derived from stored logs/events and must never influence trading decisions.
 
 ---
+### 11.3.1 Administrative Run Control (Optional, Admin Only)
+The dashboard may provide an Admin-only control to toggle trading activity.
+
+Rules:
+- This control must only set a Python-side flag (e.g., `TRADING_ENABLED`).
+- When disabled, Python must veto all new entries with reason_code manual_disabled.
+- This control must not directly interact with NT8 or alter trade mechanics.
+- Safety lockout and flatten actions always override this control.
+- The control must not clear Safety lockouts.
+
+Optional extension:
+- A separate Admin-only “Flatten Now” action may exist, requiring explicit confirmation.
 
 ## 12. Status
 Dashboard & Observability Design v1.0 — LOCKED
