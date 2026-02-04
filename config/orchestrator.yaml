@@ -1,0 +1,17 @@
+safety:
+  force_halt: false
+  force_halt_reason: "manual_halt"
+
+feed_mode: csv_replay
+
+csv_replay:
+  path: "data/replay/market_features_sample.csv"
+  max_rows: 2000
+
+nt8_live:
+  transport: "named_pipe"
+  pipe_name: "URIAH_TRADING_FEED"
+
+volatility:
+  threshold_ok: 0.80
+  threshold_block: 1.20
