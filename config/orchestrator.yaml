@@ -15,3 +15,7 @@ nt8_live:
 volatility:
   threshold_ok: 0.80
   threshold_block: 1.20
+
+hmm:
+  enabled: true
+  stub_mode: "alternating"
