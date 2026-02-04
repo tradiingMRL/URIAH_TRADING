@@ -19,3 +19,8 @@ volatility:
 hmm:
   enabled: true
   stub_mode: "alternating"
+
+early_exit:
+  force_active: false
+  force_permission: "REDUCE"
+  force_reason: "manual_early_exit"
