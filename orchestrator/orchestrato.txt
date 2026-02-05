@@ -1,0 +1,134 @@
+from modules.hostility_overlay import HostilityOverlay, HostilityState
+from modules.daily_loss_gate import DailyLossGate
+from modules.time_debt_gate import TimeDebtGate
+
+from contracts.messages import MarketFeatures
+from contracts.state import MarketState
+from contracts.enums import MarketRegime, TradePermission
+
+from modules.safety_gate import SafetyGate
+from modules.volatility_gate import VolatilityGate
+from modules.hmm_gate import HMMGate
+from modules.early_exit import EarlyExit
+
+
+class Orchestrator:
+    def __init__(self, config: dict):
+        self.config = config or {}
+
+        # Layer 0 / governance
+        self.safety = SafetyGate(self.config.get("safety", {}))
+        self.hostility = HostilityOverlay(self.config.get("hostility", {}))
+        self.daily_loss = DailyLossGate(self.config.get("daily_loss", {}))
+        self.time_debt = TimeDebtGate(self.config.get("time_debt", {}))
+
+        # Layer 1 / market interpretation
+        self.volatility = VolatilityGate(self.config.get("volatility", {}))
+        self.hmm = HMMGate(self.config.get("hmm", {}))
+
+        # Trade management
+        self.early_exit = EarlyExit(self.config.get("early_exit", {}))
+
+    def step(self, features: MarketFeatures) -> MarketState:
+        # 1) SAFETY (absolute, fail-closed)
+        s = self.safety.check(features)
+        if not s.ok:
+            return MarketState(
+                timestamp=features.timestamp,
+                instrument=features.instrument,
+                regime=MarketRegime.HALT,
+                permission=TradePermission.BLOCK,
+                safety_ok=False,
+                volatility_ok=False,
+                early_exit_active=False,
+                confidence=0.0,
+                reason=f"SAFETY:{s.reason}",
+            )
+
+        # 2) HOSTILITY OVERLAY (MC/outcome dynamics)
+        ho = self.hostility.evaluate(features)
+        if ho.state == HostilityState.HOSTILE:
+            return MarketState(
+                timestamp=features.timestamp,
+                instrument=features.instrument,
+                regime=MarketRegime.HALT,
+                permission=TradePermission.BLOCK,
+                safety_ok=True,
+                volatility_ok=False,
+                early_exit_active=False,
+                confidence=0.0,
+                reason=f"HOSTILITY:{ho.reason}",
+            )
+
+        # 3) DAILY LOSS LIMIT (3% etc) — stub
+        dl = self.daily_loss.check()
+        if not dl.ok:
+            return MarketState(
+                timestamp=features.timestamp,
+                instrument=features.instrument,
+                regime=MarketRegime.HALT,
+                permission=TradePermission.BLOCK,
+                safety_ok=True,
+                volatility_ok=False,
+                early_exit_active=False,
+                confidence=0.0,
+                reason=f"DAILYLOSS:{dl.reason}",
+            )
+
+        # 4) TIME DEBT (ALLOW/BLOCK only) — stub
+        td = self.time_debt.check()
+        td_reason = f"TD:{td.reason}"
+        if td.permission == "BLOCK":
+            return MarketState(
+                timestamp=features.timestamp,
+                instrument=features.instrument,
+                regime=MarketRegime.HALT,
+                permission=TradePermission.BLOCK,
+                safety_ok=True,
+                volatility_ok=False,
+                early_exit_active=False,
+                confidence=0.0,
+                reason=f"TIMEDEBT:{td.reason}",
+            )
+
+        # Base permission stays ALLOW (time debt does NOT produce REDUCE)
+        base_perm = TradePermission.ALLOW
+
+        # 5) VOLATILITY (permission governance)
+        v = self.volatility.check(features)
+        if not v.ok:
+            v_perm = TradePermission.REDUCE if v.permission == "REDUCE" else TradePermission.BLOCK
+            return MarketState(
+                timestamp=features.timestamp,
+                instrument=features.instrument,
+                regime=MarketRegime.CHAOTIC,
+                permission=v_perm,
+                safety_ok=True,
+                volatility_ok=False,
+                early_exit_active=False,
+                confidence=0.0,
+                reason=f"{td_reason}|VOL:{v.reason}",
+            )
+
+        # 6) HMM (regime owner)
+        h = self.hmm.infer(features)
+
+        # 7) EARLY EXIT (downgrade-only)
+        ee = self.early_exit.check(features)
+        perm = base_perm
+        if ee.permission == "REDUCE":
+            perm = TradePermission.REDUCE
+        elif ee.permission == "BLOCK":
+            perm = TradePermission.BLOCK
+
+        return MarketState(
+            timestamp=features.timestamp,
+            instrument=features.instrument,
+            regime=h.regime,
+            permission=perm,
+            safety_ok=True,
+            volatility_ok=True,
+            early_exit_active=bool(ee.active),
+            confidence=float(h.confidence),
+            reason=f"{td_reason}|HMM:{h.reason}|EE:{ee.reason}",
+        )

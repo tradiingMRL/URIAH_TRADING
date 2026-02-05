@@ -5,7 +5,7 @@ safety:
 feed_mode: csv_replay
 
 csv_replay:
-  path: "data/replay/market_features_sample.csv"
+  path: "data/replay/system_a_breakout_demo.csv"
   max_rows: 2000
 
 nt8_live:
@@ -18,9 +18,57 @@ volatility:
 
 hmm:
   enabled: true
-  stub_mode: "alternating"
+  stub_mode: "trend_only"
 
 early_exit:
   force_active: false
   force_permission: "REDUCE"
   force_reason: "manual_early_exit"
+
+system_a:
+  lookback_n: 3
+  stability_k: 1
+  buffer_atr_mult: 0.0
+
+evt:
+  enabled: true
+  min_velocity: 0.10
+
+hostility:
+  enabled: false
+  force_state: null
+  force_reason: "manual_hostility"
+
+daily_loss:
+  enabled: false
+  limit_frac: 0.03
+  force_block: false
+  force_reason: "manual_daily_loss_block"
+
+
+  # BALANCED bankruptcy thresholds
+  block_slope_min_per_hour: 90.0
+  block_accel_min_per_hour2: 90.0
+
+  # persistence filter
+  confirm_bars: 3
+
+
+time_debt:
+  enabled: true
+  session_minutes: 480
+
+  # long lookback (stable) – seeded from backtest later
+  lookback_trades: 200
+
+  # smoothing + derivatives (1m cadence)
+  smooth_alpha: 0.15
+  slope_window_minutes: 60
+  accel_window_minutes: 60
+
+time_debt:
+  force_permission: "ALLOW"   # only if code supports it
+  force_reason: "manual_time_debt_block_test"
+
+  # persistence filter
+  confirm_bars: 3

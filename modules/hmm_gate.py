@@ -16,8 +16,15 @@ class HMMDecision:
 class HMMGate:
     """
     HMM Gate (stub v1):
-    - Alternates TREND / MEAN_REVERSION for plumbing proof.
-    - Confidence is deterministic and stable (0.55 / 0.60).
+
+    Stub modes:
+      - "alternating": TREND, MEAN_REVERSION, TREND, MEAN_REVERSION...
+      - "trend_only": always TREND (useful to test SystemA only)
+      - "mr_only": always MEAN_REVERSION (useful to test SystemB only)
+      - anything else: CHAOTIC
+
+    This gate owns "regime" and "confidence" only.
+    It does NOT set permission.
     """
 
     def __init__(self, config: dict):
@@ -34,13 +41,36 @@ class HMMGate:
                 reason="hmm_disabled",
             )
 
-        if self.stub_mode == "alternating":
+        mode = self.stub_mode.lower().strip()
+
+        if mode == "trend_only":
+            return HMMDecision(
+                regime=MarketRegime.TREND,
+                confidence=0.60,
+                reason="hmm_stub_trend_only",
+            )
+
+        if mode == "mr_only":
+            return HMMDecision(
+                regime=MarketRegime.MEAN_REVERSION,
+                confidence=0.55,
+                reason="hmm_stub_mr_only",
+            )
+
+        if mode == "alternating":
             self._tick += 1
             if self._tick % 2 == 1:
-                return HMMDecision(MarketRegime.TREND, 0.60, "hmm_stub_trend")
-            return HMMDecision(MarketRegime.MEAN_REVERSION, 0.55, "hmm_stub_mr")
+                return HMMDecision(
+                    regime=MarketRegime.TREND,
+                    confidence=0.60,
+                    reason="hmm_stub_trend",
+                )
+            return HMMDecision(
+                regime=MarketRegime.MEAN_REVERSION,
+                confidence=0.55,
+                reason="hmm_stub_mr",
+            )
 
-        # default stub behavior
         return HMMDecision(
             regime=MarketRegime.CHAOTIC,
             confidence=0.0,
